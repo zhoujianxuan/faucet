@@ -1,7 +1,9 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -11,10 +13,16 @@ type WorkerPool struct {
 	cap              int
 	runCount         int
 	goCount          int
+	state            int32 // 0 == Open, 1 == Close
 	taskChanel       chan Task
 	closeChanel      chan struct{}
 	regulatoryChanel chan struct{}
 }
+
+const (
+	Open  = 0
+	Close = 1
+)
 
 func NewWorkerPool(cap int) *WorkerPool {
 	w := &WorkerPool{
@@ -40,14 +48,26 @@ func (w *WorkerPool) run() {
 	}
 }
 
+var ErrClosed = errors.New("state is closed")
+
 // Submit
 // 提交需要协程池运行的任务
-func (w *WorkerPool) Submit(task Task) {
+func (w *WorkerPool) Submit(task Task) error {
+	// 通过使用atomic.LoadInt32，可以确保读取操作是原子的，即在同一时间只有一个操作可以访问该变量，从而避免了并发读取时可能出现的竞态条件问题。
+	if atomic.LoadInt32(&w.state) == Close {
+		return ErrClosed
+	}
+
 	w.runCount++
 	w.taskChanel <- task
+	return nil
 }
 
 func (w *WorkerPool) CloseAll() {
+	if !atomic.CompareAndSwapInt32(&w.state, Open, Close) {
+		return
+	}
+
 	w.close(w.goCount)
 	w.regulatoryChanel <- struct{}{}
 }
