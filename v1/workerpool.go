@@ -24,6 +24,7 @@ func NewWorkerPool(cap int) *WorkerPool {
 		regulatoryChanel: make(chan struct{}),
 	}
 	w.start(cap)
+	go w.regulatory()
 	return w
 }
 
